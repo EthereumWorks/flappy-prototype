@@ -27,6 +27,8 @@ let player;
 let gameOver = false;
 let screenScrolling = true; // Управление скроллингом экрана
 let obstaclesGroup; // Группа препятствий
+let modifiersGroup; // Группа модификаторов
+
 let backgroundStripes = [];
 let gameOverText, playAgainButton; // UI элементы
 let nest; // Гнездо
@@ -57,10 +59,12 @@ function create() {
 
   obstaclesGroup = this.physics.add.staticGroup();
   coinsGroup = this.physics.add.staticGroup();
+  modifiersGroup = this.physics.add.staticGroup();
 
   const levelData = this.cache.json.get('level1');
   levelData.obstacles.forEach(obstacle => createObstacle(this, obstacle));
   levelData.coins.forEach(coin => createCoin(this, coin));
+  levelData.modifiers.forEach(modifier => createModifier(this, modifier)); // Добавляем создание модификаторов
 
   const playerRect = this.add.rectangle(50, config.height / 2, playerWidth, playerHeight, 0xff0000);
   this.physics.add.existing(playerRect);
@@ -72,7 +76,9 @@ function create() {
   createNest(this, levelData.nest);
 
   this.physics.add.overlap(player, coinsGroup, collectCoin, null, this);
-  this.physics.add.collider(player, obstaclesGroup, () => handleGameOver(this));
+  this.physics.add.overlap(player, modifiersGroup, applyModifier, null, this); // Обрабатываем модификаторы
+  
+  this.physics.add.collider(player, obstaclesGroup, () => handlePlayerCollision(this));
 
   coinText = this.add.text(10, 10, `Coins: ${coinCount}`, {
     fontSize: '20px',
@@ -110,6 +116,96 @@ function create() {
       if (!gameOver) handleGameOver(this);
     }
   });
+}
+
+function handlePlayerCollision(scene) {
+  if (gameOver) return;
+
+  // Устанавливаем вертикальное ускорение для падения
+  player.body.setVelocityY(300); // Падение вниз с постоянной скоростью
+  player.body.setGravityY(800); // Увеличиваем силу притяжения
+  
+  // Фиксируем игрока, чтобы он не мог прыгать
+  //gameOver = true;
+  handleGameOver(scene);
+  // Отключаем горизонтальное движение
+  //player.body.setVelocityX(0);
+  // Отключаем ввод пользователя
+  //scene.input.off('pointerdown'); 
+
+}
+
+function getModifierSymbol(effect) {
+  switch (effect) {
+    case 'enlarge':
+      return 'x';
+    case 'slow':
+      return 'S';
+    case 'duplicate':
+      return '+';
+    default:
+      return '?'; // Неизвестный модификатор
+  }
+}
+
+function createModifier(scene, modifierData) {
+  const modifier = scene.add.rectangle(
+    modifierData.x,
+    modifierData.y,
+    modifierData.width,
+    modifierData.height,
+    Phaser.Display.Color.HexStringToColor(modifierData.color).color
+  );
+
+  modifier.alpha = 0.5; // Устанавливаем полупрозрачность
+
+  // Добавляем текст поверх модификатора
+  const symbol = getModifierSymbol(modifierData.effect); // Получаем символ для эффекта
+  const text = `${symbol}${modifierData.value}`; // Формируем текст с параметром
+  const textStyle = {
+    fontSize: '16px',
+    color: '#FFFFFF',
+    align: 'center',
+  };
+  const modifierText = scene.add.text(modifierData.x, modifierData.y, text, textStyle).setOrigin(0.5);
+
+  // Привязываем текст к модификатору
+  modifier.text = modifierText;
+
+  scene.physics.add.existing(modifier, true);
+  modifier.effect = modifierData.effect; // Добавляем эффект в объект модификатора
+  modifier.value = modifierData.value; // Добавляем значение параметра в объект модификатора
+  modifiersGroup.add(modifier); // Добавляем в группу модификаторов
+}
+
+function applyModifier(player, modifier) {
+  /*
+  switch (modifier.effect) {
+    case 'enlarge':
+      playerWidth += 10;
+      playerHeight += 10;
+      player.setSize(playerWidth, playerHeight);
+      player.body.setSize(playerWidth, playerHeight);
+      break;
+    case 'slow':
+      SCROLL_SPEED -= 1;
+      if (SCROLL_SPEED < 1) SCROLL_SPEED = 1; // Минимальная скорость
+      break;
+    case 'duplicate':
+      coinCount += 2; // Добавляем две монеты
+      coinText.setText(`Coins: ${coinCount}`);
+      break;
+    default:
+      console.warn('Unknown modifier effect:', modifier.effect);
+  }
+  */
+
+  // Удаляем текст модификатора, если он существует
+  if (modifier.text) {
+    modifier.text.destroy();
+  }
+
+  modifier.destroy(); // Удаляем модификатор после применения
 }
 
 function update() {
@@ -229,6 +325,9 @@ function handleGameOver(scene) {
   if (gameOver) return;
 
   gameOver = true;
+
+  // Отключаем управление игроком
+  scene.input.off('pointerdown');
 
   // Удаляем игрока
   if (player) {
@@ -374,6 +473,29 @@ function scrollObstacles() {
       coin.destroy();
     }
   });
+
+    // Скроллинг модификаторов
+    modifiersGroup.getChildren().forEach(modifier => {
+      modifier.x -= SCROLL_SPEED;
+    
+      if (modifier.body) {
+        modifier.body.updateFromGameObject(); // Синхронизация физического тела
+      }
+    
+      // Обновляем позицию текста
+      if (modifier.text) {
+        modifier.text.x = modifier.x;
+        modifier.text.y = modifier.y;
+      }
+    
+      if (modifier.x < -modifier.width / 2) {
+        if (modifier.text) {
+          modifier.text.destroy(); // Удаляем текст, если модификатор вышел за экран
+        }
+        modifier.destroy(); // Удаляем модификатор
+      }
+    });
+    
 }
 
 function handlePlayerRotation() {
