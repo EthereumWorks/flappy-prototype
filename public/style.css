@@ -1,0 +1,15 @@
+body {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background-color: #87CEEB; /* Цвет фона для за пределами игры */
+}
+
+canvas {
+  display: block;
+  border: 5px solid #000000; /* Рамка вокруг игрового поля */
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); /* Тень для красоты */
+}
