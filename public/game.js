@@ -25,8 +25,8 @@ const config = {
 const game = new Phaser.Game(config);
 let birdsComeText;
 
-let playerWidth = 30; // Ширина игрока
-let playerHeight = 30; // Высота игрока
+let playerWidth = 60; // Ширина игрока
+let playerHeight = 60; // Высота игрока
 const initialXOffset = 50; // Начальное горизонтальное смещение для первого игрока и рядов
 let playerJumpVelocity = -200; // Сила прыжка игрока
 let birdsCome = 0; // Количество птиц, достигших гнезда
@@ -43,7 +43,8 @@ let nest; // Гнездо
 let dangerZone; // Черный блок под гнездом
 let pole; // шест гнезда
 let levelComplete = false; // Завершение уровня
-const SCROLL_SPEED = 4; // Скорость прокрутки
+const BASE_SCROLL_SPEED = 4; // Базовая скорость прокрутки
+let SCROLL_SPEED = BASE_SCROLL_SPEED; // Текущая изменяемая скорость прокрутки
 const ROTATION_SPEED = 5; // Коэффициент изменения угла
 
 let coinCount = 0; // Счетчик монет
@@ -54,6 +55,8 @@ let initialNestWidth = 100; // Изначальная ширина гнезда
 let nestWidth = initialNestWidth; // Текущая ширина гнезда
 
 function preload() {
+  this.load.image('bird', 'assets/images/bird.png'); // Птица с поднятыми крыльями
+  this.load.image('bird_u', 'assets/images/bird_u.png'); // Птица с опущенными крыльями
   this.load.json('level1', 'data/level1.json'); // Загрузка уровня
 }
 
@@ -62,6 +65,7 @@ function create() {
   levelComplete = false;
   screenScrolling = true;
   birdsCome = 0; // Сбрасываем счётчик птиц
+  SCROLL_SPEED = BASE_SCROLL_SPEED; // Сброс текущей скорости при старте
 
   resetBackground();
   createScrollingBackground(this);
@@ -140,7 +144,23 @@ function create() {
   this.input.on('pointerdown', () => {
     if (!gameOver) {
       playersGroup.children.each((player) => {
-        player.body.setVelocityY(playerJumpVelocity); // Прыжок для каждого квадратика
+        // Проверяем, существует ли объект
+        if (!player || !player.scene) {
+          return;
+        }
+  
+        // Смена текстуры на bird_u
+        player.setTexture('bird_u');
+  
+        // Устанавливаем таймер для возврата текстуры через 0.1 секунды
+        this.time.delayedCall(100, () => {
+          if (player && player.scene) {
+            player.setTexture('bird'); // Возврат к изначальному состоянию
+          }
+        });
+  
+        // Прыжок игрока
+        player.body.setVelocityY(playerJumpVelocity);
       });
     }
   });
@@ -165,15 +185,15 @@ function updateBirdsComeText() {
 }
 
 function createPlayer(scene, x, y) {
-  const playerRect = scene.add.rectangle(x, y, playerWidth, playerHeight, 0xff0000);
-  scene.physics.add.existing(playerRect);
-  playerRect.body.setCollideWorldBounds(true);
-  playerRect.body.onWorldBounds = true;
+  const player = scene.physics.add.sprite(x, y, 'bird'); // Устанавливаем изначальный спрайт
+  player.setDisplaySize(playerWidth, playerHeight); // Размеры 30x30
+  player.setCollideWorldBounds(true);
+  player.body.onWorldBounds = true;
 
   // Присваиваем уникальный идентификатор
-  playerRect.id = Phaser.Math.RND.uuid();
+  player.id = Phaser.Math.RND.uuid();
 
-  playersGroup.add(playerRect);
+  playersGroup.add(player);
 }
 
 function addPlayers(scene, additionalPlayers) {
@@ -245,7 +265,7 @@ function getModifierSymbol(effect) {
   switch (effect) {
     case 'enlarge':
       return 'x';
-    case 'slow':
+    case 'speed':
       return 'S';
     case 'duplicate':
       return '+';
@@ -286,6 +306,7 @@ function createModifier(scene, modifierData) {
 
 function applyModifier(player, modifier) {
   switch (modifier.effect) {
+
     case 'duplicate':
       if (modifier.value && typeof modifier.value === 'number') {
         addPlayers(this, modifier.value); // Добавляем указанное количество игроков
@@ -293,6 +314,28 @@ function applyModifier(player, modifier) {
         console.warn('Duplicate modifier is missing a valid value.');
       }
       break;
+
+      case 'enlarge':
+        if (modifier.value && typeof modifier.value === 'number') {
+          const scaleFactor = modifier.value; // В данном случае `value = 2`
+          
+          // Увеличиваем размеры игрока пропорционально scaleFactor
+          player.setDisplaySize(playerWidth * scaleFactor, playerHeight * scaleFactor);
+          console.log(`Player with ID ${player.id} enlarged by factor ${scaleFactor}.`);
+        } else {
+          console.warn('Enlarge modifier is missing a valid value.');
+        }
+        break;
+
+    case 'speed':
+      if (modifier.value && typeof modifier.value === 'number') {
+        SCROLL_SPEED *= modifier.value; // Изменяем текущую скорость
+        console.log(`Scroll speed modified: SCROLL_SPEED is now ${SCROLL_SPEED}`);
+      } else {
+        console.warn('Speed modifier is missing a valid value.');
+      }
+      break;
+
     default:
       console.warn('Unknown modifier effect:', modifier.effect);
   }
