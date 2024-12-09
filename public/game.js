@@ -7,6 +7,12 @@ const config = {
     arcade: {
       gravity: { y: 500 },
       debug: true,
+      checkCollision: {
+        up: true,
+        down: true,
+        left: true,
+        right: true,
+      },
     },
   },
   scene: {
@@ -17,15 +23,17 @@ const config = {
 };
 
 const game = new Phaser.Game(config);
+let birdsComeText;
 
-// Переменные
 let playerWidth = 30; // Ширина игрока
 let playerHeight = 30; // Высота игрока
+const initialXOffset = 50; // Начальное горизонтальное смещение для первого игрока и рядов
 let playerJumpVelocity = -200; // Сила прыжка игрока
+let birdsCome = 0; // Количество птиц, достигших гнезда
 
-let player;
 let gameOver = false;
 let screenScrolling = true; // Управление скроллингом экрана
+let playersGroup;   // группа игроков
 let obstaclesGroup; // Группа препятствий
 let modifiersGroup; // Группа модификаторов
 
@@ -53,6 +61,7 @@ function create() {
   gameOver = false;
   levelComplete = false;
   screenScrolling = true;
+  birdsCome = 0; // Сбрасываем счётчик птиц
 
   resetBackground();
   createScrollingBackground(this);
@@ -66,24 +75,34 @@ function create() {
   levelData.coins.forEach(coin => createCoin(this, coin));
   levelData.modifiers.forEach(modifier => createModifier(this, modifier)); // Добавляем создание модификаторов
 
-  const playerRect = this.add.rectangle(50, config.height / 2, playerWidth, playerHeight, 0xff0000);
-  this.physics.add.existing(playerRect);
-  player = playerRect;
-   player.body.setCollideWorldBounds(true); // Включаем столкновение с краями игрового мира
-   player.body.onWorldBounds = true; // Активируем генерацию событий при столкновении с краями
- 
+  // Инициализируем группу игроков как динамическую
+  playersGroup = this.physics.add.group({
+    runChildUpdate: true, // Автоматическое обновление объектов в группе
+  });
 
+  // Создаем первого игрока
+  createPlayer(this, initialXOffset, config.height / 2);
+  // Создаем гнездо
   createNest(this, levelData.nest);
 
-  this.physics.add.overlap(player, coinsGroup, collectCoin, null, this);
-  this.physics.add.overlap(player, modifiersGroup, applyModifier, null, this); // Обрабатываем модификаторы
+  this.physics.add.overlap(playersGroup, coinsGroup, collectCoin, null, this);
+  this.physics.add.overlap(playersGroup, modifiersGroup, applyModifier, null, this); // Обрабатываем модификаторы
   
-  this.physics.add.collider(player, obstaclesGroup, () => handlePlayerCollision(this));
+  this.physics.add.collider(playersGroup, obstaclesGroup, (player, obstacle) => {
+    handlePlayerCollision(this, player, obstacle);
+  });
 
   coinText = this.add.text(10, 10, `Coins: ${coinCount}`, {
     fontSize: '20px',
     color: '#FFD700',
   });
+
+  birdsComeText = this.add.text(config.width - 10, 10, `Birds Come: ${birdsCome}`, {
+    fontSize: '20px',
+    color: '#FFFFFF',
+    align: 'right',
+  }).setOrigin(1, 0); // Размещаем в правом верхнем углу
+  
 
   gameOverText = this.add.text(config.width / 2, config.height / 2 - 50, 'Game Over', {
     fontSize: '32px',
@@ -98,41 +117,128 @@ function create() {
   }).setOrigin(0.5).setInteractive().setVisible(false);
 
   playAgainButton.on('pointerdown', () => {
-    coinCount = 0; // Сбрасываем счетчик монет
-    coinText.setText(`Coins: ${coinCount}`); // Обновляем текст
-    nestWidth = initialNestWidth; // Возвращаем ширину гнезда к стандартному значению
+    // Очистка группы игроков
+    playersGroup.clear(true, true);
+  
+    // Сброс переменных
+    birdsCome = 0;
+    coinCount = 0;
+    nestWidth = initialNestWidth;
+    
+    updateBirdsComeText();
+    coinText.setText(`Coins: ${coinCount}`);
+
+    if (nest) {
+      nest.destroy();
+      nest = null;
+    }
+  
+    // Перезапуск сцены
     this.scene.restart();
   });
 
   this.input.on('pointerdown', () => {
     if (!gameOver) {
-      player.body.setVelocityY(playerJumpVelocity); // Прыжок
+      playersGroup.children.each((player) => {
+        player.body.setVelocityY(playerJumpVelocity); // Прыжок для каждого квадратика
+      });
     }
   });
 
-  // Обработчик для столкновений с краями
   this.physics.world.on('worldbounds', (body, up, down, left, right) => {
-    if (body.gameObject === player) { // Проверяем, что это игрок
-      if (!gameOver) handleGameOver(this);
+
+    if (!body.gameObject ) {
+      return;
     }
+  
+    const player = body.gameObject; 
+    playersGroup.remove(player, true);
+    player.destroy();
+
   });
 }
 
-function handlePlayerCollision(scene) {
+function updateBirdsComeText() {
+  if (birdsComeText) {
+    birdsComeText.setText(`Birds Come: ${birdsCome}`);
+  }
+}
+
+function createPlayer(scene, x, y) {
+  const playerRect = scene.add.rectangle(x, y, playerWidth, playerHeight, 0xff0000);
+  scene.physics.add.existing(playerRect);
+  playerRect.body.setCollideWorldBounds(true);
+  playerRect.body.onWorldBounds = true;
+
+  // Присваиваем уникальный идентификатор
+  playerRect.id = Phaser.Math.RND.uuid();
+
+  playersGroup.add(playerRect);
+}
+
+function addPlayers(scene, additionalPlayers) {
+  const spacing = 10; // Расстояние между игроками по горизонтали и вертикали
+  const shiftX = playerWidth ; // Смещение вправо для всей группы
+
+  // Получаем координаты заглавной птицы
+  const firstPlayer = playersGroup.getChildren()[0];
+  const baseX = firstPlayer ? firstPlayer.x : initialXOffset; // Если первая птица есть, используем её координату X
+  const baseY = firstPlayer ? firstPlayer.y : config.height / 2; // Если первой птицы нет, используем центр экрана
+
+  // Смещаем всех существующих птиц вправо
+  playersGroup.children.iterate((player) => {
+    if (player.body) {
+      player.x += shiftX; // Смещаем вправо
+      player.body.updateFromGameObject(); // Синхронизируем физическое тело
+    }
+  });
+
+
+  // Добавляем новых птиц
+  let toggleDirection = -1; // Переключатель направления: -1 (вверх) или 1 (вниз)
+  for (let i = 0; i < additionalPlayers; i++) {
+    const x = baseX; // Координата X остаётся фиксированной для нового ряда
+    const y = baseY + toggleDirection * Math.ceil(i / 2) * (playerHeight + spacing);
+
+    // Создаём новую птицу
+    const newPlayer = createPlayer(scene, initialXOffset, y);
+
+    // Устанавливаем скорость новой птицы
+    if (newPlayer?.body) {
+      newPlayer.body.setVelocityY(baseVelocityY); // Совпадение скорости с заглавной птицей
+    }
+
+    // Переключаем направление для следующей птицы
+    toggleDirection *= -1;
+  }
+
+}
+
+function handlePlayerCollision(scene, player, obstacle) {
+  if (!player || !obstacle) {
+    console.error('Player or obstacle is undefined');
+    return;
+  }
+
+  // Проверяем, завершена ли игра для всех игроков
   if (gameOver) return;
 
-  // Устанавливаем вертикальное ускорение для падения
+  // Устанавливаем вертикальное ускорение для падения только для столкнувшегося игрока
   player.body.setVelocityY(300); // Падение вниз с постоянной скоростью
   player.body.setGravityY(800); // Увеличиваем силу притяжения
-  
-  // Фиксируем игрока, чтобы он не мог прыгать
-  //gameOver = true;
-  handleGameOver(scene);
-  // Отключаем горизонтальное движение
-  //player.body.setVelocityX(0);
-  // Отключаем ввод пользователя
-  //scene.input.off('pointerdown'); 
+  player.body.moves = false; // Отключаем возможность перемещения
 
+  // Удаляем игрока из группы после небольшой задержки (симуляция падения)
+  //scene.time.delayedCall(1000, () => {
+    playersGroup.remove(player, true, true); // Удаляем игрока из группы
+ // });
+
+  // Проверяем, остались ли еще игроки в группе
+  if (playersGroup.getChildren().length === 0) {
+    console.log("No more players: GAME OVER");
+    // Если игроков не осталось, завершаем игру
+    handleGameOver(scene);
+  }
 }
 
 function getModifierSymbol(effect) {
@@ -179,26 +285,17 @@ function createModifier(scene, modifierData) {
 }
 
 function applyModifier(player, modifier) {
-  /*
   switch (modifier.effect) {
-    case 'enlarge':
-      playerWidth += 10;
-      playerHeight += 10;
-      player.setSize(playerWidth, playerHeight);
-      player.body.setSize(playerWidth, playerHeight);
-      break;
-    case 'slow':
-      SCROLL_SPEED -= 1;
-      if (SCROLL_SPEED < 1) SCROLL_SPEED = 1; // Минимальная скорость
-      break;
     case 'duplicate':
-      coinCount += 2; // Добавляем две монеты
-      coinText.setText(`Coins: ${coinCount}`);
+      if (modifier.value && typeof modifier.value === 'number') {
+        addPlayers(this, modifier.value); // Добавляем указанное количество игроков
+      } else {
+        console.warn('Duplicate modifier is missing a valid value.');
+      }
       break;
     default:
       console.warn('Unknown modifier effect:', modifier.effect);
   }
-  */
 
   // Удаляем текст модификатора, если он существует
   if (modifier.text) {
@@ -208,15 +305,52 @@ function applyModifier(player, modifier) {
   modifier.destroy(); // Удаляем модификатор после применения
 }
 
+function checkLevelEnd() {
+  if (birdsCome > 0) {
+    // Отображаем сообщение об успешном завершении уровня
+    gameOverText.setText('Level Complete').setVisible(true);
+  } else {
+    // Отображаем сообщение об окончании игры
+    gameOverText.setText('Game Over').setVisible(true);
+  }
+  
+  // Делаем кнопку "Play Again" видимой
+  playAgainButton.setVisible(true);
+
+  // Останавливаем обновление игры
+  gameOver = true;
+}
+
+function checkOutOfBounds(player) {
+  if (player.y > config.height || player.y < 0 || player.x > config.width || player.x < 0) {
+    //console.log(`Player with ID ${player.id} out of bounds: x=${player.x}, y=${player.y}`);
+    playersGroup.remove(player, true);
+    player.destroy();
+  }
+}
+
 function update() {
   if (gameOver || levelComplete) return;
 
+  playersGroup.children.each((player) => checkOutOfBounds(player));
+
+  // Проверяем, остались ли птицы в группе
+  if (playersGroup.getChildren().length === 0) {
+    checkLevelEnd();
+    return; // Прекращаем дальнейшее выполнение, если игра завершена
+  }
+
   if (screenScrolling) {
     // Проверяем, достигло ли гнездо середины экрана
-    if (nest && nest.x <= config.width * 0.75 ) {
+    if (nest && nest.x <= config.width * 0.75) {
       stopScreenScrolling();
-      // Запускаем движение игрока вправо
-      player.body.setVelocityX(SCROLL_SPEED * 60);
+
+      // Запускаем движение всех игроков вправо
+      playersGroup.children.each((player) => {
+        if (player.body) {
+          player.body.setVelocityX(SCROLL_SPEED * 60);
+        }
+      });
     }
 
     // Скроллинг экрана
@@ -242,6 +376,7 @@ function scrollNest() {
       nest.body.updateFromGameObject(); // Синхронизируем физическое тело с визуальным объектом
     }
 
+    
     // Если dangerZone существует, перемещаем его вместе с nest
     if (dangerZone) {
       dangerZone.x = nest.x; // Синхронизация по X
@@ -259,9 +394,10 @@ function scrollNest() {
     }
 
     // Удаляем гнездо, если оно выходит за экран (опционально)
-    if (nest.x + nest.width / 2 < 0) {
+    /*if (nest.x + nest.width / 2 < 0) {
       console.log("Nest went off-screen");
     }
+    */
   }
 }
 
@@ -279,10 +415,7 @@ function stopScreenScrolling() {
     obstacle.x = obstacle.x; // Удерживаем текущее положение
   });
 
-  // Останавливаем гнездо
-  if (nest) {
-    nest.x = nest.x; // Удерживаем текущее положение
-  }
+
 }
 
 function movePlayerToNest() {
@@ -292,23 +425,26 @@ function movePlayerToNest() {
   }
 }
 
-function handleLevelComplete(player, nest) {
-  if (!player || !nest) {
-    console.error('Player or nest is undefined');
+/*
+function handleLevelComplete(scene, playersGroup, nest) {
+  if (!playersGroup || !nest) {
+    console.error('PlayersGroup or nest is undefined');
     return;
   }
 
   levelComplete = true;
 
-  // Останавливаем движение игрока и отключаем гравитацию
-  if (player.body) {
-    player.body.setVelocity(0, 0); // Останавливаем движение
-    player.body.setGravityY(0); // Отключаем гравитацию
-    player.body.moves = false; // Отключаем любые перемещения
-  }
+  // Останавливаем движение всех игроков и отключаем гравитацию
+  playersGroup.getChildren().forEach((player) => {
+    if (player.body) {
+      player.body.setVelocity(0, 0); // Останавливаем движение
+      player.body.setGravityY(0); // Отключаем гравитацию
+      player.body.moves = false; // Отключаем любые перемещения
+    }
+  });
 
   // Выводим сообщение об успешном завершении уровня
-  this.add.text(config.width / 2, config.height / 2 - 50, 'Level Complete!', {
+  scene.add.text(config.width / 2, config.height / 2 - 50, 'Level Complete!', {
     fontSize: '32px',
     color: '#00FF00',
   }).setOrigin(0.5);
@@ -320,6 +456,7 @@ function handleLevelComplete(player, nest) {
     console.warn('playAgainButton is undefined.');
   }
 }
+*/
 
 function handleGameOver(scene) {
   if (gameOver) return;
@@ -329,12 +466,13 @@ function handleGameOver(scene) {
   // Отключаем управление игроком
   scene.input.off('pointerdown');
 
+  /*
   // Удаляем игрока
   if (player) {
     player.destroy();
     player = null;
   }
-
+  */
   // Показываем текст Game Over и кнопку Play Again
   gameOverText.setVisible(true);
   playAgainButton.setVisible(true);
@@ -361,7 +499,6 @@ function scrollBackground() {
 }
 
 function createNest(scene, nestData) {
-
   // Создаем основное гнездо (зеленый блок)
   nest = scene.add.rectangle(
     nestData.x,
@@ -378,6 +515,7 @@ function createNest(scene, nestData) {
     console.error('Physics body for nest was not created.');
     return;
   }
+  
 
   // Создаем черный блок под гнездом
   dangerZone = scene.add.rectangle(
@@ -390,10 +528,11 @@ function createNest(scene, nestData) {
 
   scene.physics.add.existing(dangerZone, true); // Создаем статическое тело для dangerZone
 
+
   // Создаем вертикальный прямоугольник для шеста
   pole = scene.add.rectangle(
     nestData.x, // Центр шеста совпадает с центром гнезда
-    nestData.y + nestData.height * 2 + nestData.y / 2, // Половина высоты dangerZone + ниже гнезда
+    nestData.y * 1.5 + nestData.height*2 , // Под гнездом
     nestData.height, // Шест тоньше гнезда
     config.height - (nestData.y + nestData.height), // Высота от dangerZone до низа экрана
     0x000000 // Черный цвет
@@ -407,23 +546,55 @@ function createNest(scene, nestData) {
     return;
   }
 
-  // Проверяем столкновение игрока с dangerZone
-  scene.physics.add.collider(player, dangerZone, () => {
-    if (!gameOver) handleGameOver(scene);
+  
+  // Проверяем столкновение всех игроков с dangerZone
+  scene.physics.add.collider(playersGroup, dangerZone, (player, dangerZone) => {
+   /*
+    if (!gameOver) {
+      handleGameOver(scene);
+    }*/
   });
 
-  // Проверяем столкновение игрока с шестом
-  scene.physics.add.collider(player, pole, () => {
-    if (!gameOver) handleGameOver(scene);
+  // Проверяем столкновение всех игроков с шестом
+  scene.physics.add.collider(playersGroup, pole, (player, pole) => {
+    /*if (!gameOver) {
+      handleGameOver(scene);
+    }*/
   });
+  
 
-  // Проверяем перекрытие игрока с гнездом для завершения уровня
-  scene.physics.add.overlap(player, nest, (player, nest) => {
-    if (!levelComplete && !gameOver) {
-      handleLevelComplete.call(scene, player, nest); // Используем `call` для правильного контекста
-    }
-  });
+  // Проверяем столкновение любого игрока с гнездом
+  scene.physics.add.collider(playersGroup, nest, handlePlayerNestCollision, null, scene);
+
 }
+
+function handlePlayerNestCollision(obj1, obj2) {
+  // Проверяем, кто из объектов — игрок, а кто — гнездо
+  const player = obj1.type === 'Rectangle' && playersGroup.contains(obj1) ? obj1 : obj2;
+  const nest = obj1 === player ? obj2 : obj1;
+
+  if (!player || !nest || !player.body || !nest.body) {
+    console.warn('Invalid collision detected.');
+    return;
+  }
+
+  // Проверяем, содержится ли игрок в группе
+  const playerInGroup = playersGroup.getChildren().includes(player);
+
+  if (!playerInGroup) {
+    console.warn('Player not found in group. Skipping removal.');
+    return;
+  }
+
+  // Увеличиваем счетчик
+  birdsCome++;
+  updateBirdsComeText();
+
+  // Убираем игрока из группы
+  playersGroup.remove(player, true); // Удаляем объект из группы и сцены
+  player.destroy(); // Полностью уничтожаем объект
+}
+
 
 function collectCoin(player, coin) {
   coin.destroy(); // Удаляем монетку
@@ -499,13 +670,17 @@ function scrollObstacles() {
 }
 
 function handlePlayerRotation() {
-  if (!player || !player.body) return;
+  if (!playersGroup) return;
 
-  if (player.body.velocity.y < 0) {
-    player.angle = Phaser.Math.Clamp(player.angle - ROTATION_SPEED, -30, 30);
-  } else if (player.body.velocity.y > 0) {
-    player.angle = Phaser.Math.Clamp(player.angle + ROTATION_SPEED, -30, 30);
-  }
+  playersGroup.children.each((player) => {
+    if (!player.body) return;
+
+    if (player.body.velocity.y < 0) {
+      player.angle = Phaser.Math.Clamp(player.angle - ROTATION_SPEED, -30, 30);
+    } else if (player.body.velocity.y > 0) {
+      player.angle = Phaser.Math.Clamp(player.angle + ROTATION_SPEED, -30, 30);
+    }
+  });
 }
 
 function resetBackground() {

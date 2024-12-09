@@ -1,18 +1,19 @@
 {
+    
     "obstacles": [
-      { "x": 300, "y": 560, "width": 50, "height": 100, "color": "#000000" },
-      { "x": 600, "y": 400, "width": 50, "height": 150, "color": "#000000" },
-      { "x": 900, "y": 300, "width": 50, "height": 200, "color": "#000000" }
+      { "x": 300, "y": 560, "width": 50, "height": 150, "color": "#000000" },
+      { "x": 600, "y": 400, "width": 50, "height": 200, "color": "#000000" },
+      { "x": 900, "y": 300, "width": 50, "height": 250, "color": "#000000" }
     ],
+    
     "coins": [
       { "x": 450, "y": 300 },
       { "x": 750, "y": 200 },
       { "x": 1050, "y": 150 }
     ],
     "modifiers": [
-      { "x": 500, "y": 250, "width": 40, "height": 100, "color": "#800080", "effect": "enlarge", "value": 1.5 },
-      { "x": 800, "y": 200, "width": 40, "height": 100, "color": "#800080", "effect": "slow", "value": 2 },
-      { "x": 1100, "y": 150, "width": 40, "height": 100, "color": "#800080", "effect": "duplicate", "value": 3 }
+      { "x": 500, "y": 250, "width": 40, "height": 100, "color": "#800080", "effect": "duplicate", "value": 5 },
+      { "x": 800, "y": 200, "width": 40, "height": 100, "color": "#800080", "effect": "duplicate", "value": 10 }
     ],
     "nest": {
       "x": 1200,
