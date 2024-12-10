@@ -6,7 +6,7 @@ const config = {
     default: 'arcade',
     arcade: {
       gravity: { y: 500 },
-      debug: true,
+      debug: false,
       checkCollision: {
         up: true,
         down: true,
@@ -37,7 +37,9 @@ let playersGroup;   // группа игроков
 let obstaclesGroup; // Группа препятствий
 let modifiersGroup; // Группа модификаторов
 
-let backgroundStripes = [];
+let gridGraphics; // Графический объект для сетки
+let gridOffsetX = 0; // Смещение по X для сетки
+let gridOffsetY = 0; // Смещение по Y для сетки
 let gameOverText, playAgainButton; // UI элементы
 let nest; // Гнездо
 let dangerZone; // Черный блок под гнездом
@@ -46,6 +48,8 @@ let levelComplete = false; // Завершение уровня
 const BASE_SCROLL_SPEED = 4; // Базовая скорость прокрутки
 let SCROLL_SPEED = BASE_SCROLL_SPEED; // Текущая изменяемая скорость прокрутки
 const ROTATION_SPEED = 5; // Коэффициент изменения угла
+
+
 
 let coinCount = 0; // Счетчик монет
 let coinText; // Текст для отображения счета
@@ -56,7 +60,9 @@ let nestWidth = initialNestWidth; // Текущая ширина гнезда
 
 function preload() {
   this.load.image('bird', 'assets/images/bird.png'); // Птица с поднятыми крыльями
-  this.load.image('bird_u', 'assets/images/bird_u.png'); // Птица с опущенными крыльями
+  this.load.image('barrier', 'assets/images/barrier1.png'); // Загружаем изображение барьера
+  this.load.image('modifier', 'assets/images/modifier1.png'); // Загрузка изображения модификатора
+  this.load.image('coin', 'assets/images/coin.png'); // Загружаем изображение монеты
   this.load.json('level1', 'data/level1.json'); // Загрузка уровня
 }
 
@@ -70,12 +76,24 @@ function create() {
   resetBackground();
   createScrollingBackground(this);
 
-  obstaclesGroup = this.physics.add.staticGroup();
-  coinsGroup = this.physics.add.staticGroup();
-  modifiersGroup = this.physics.add.staticGroup();
+  // Инициализируем группы
+  obstaclesGroup = this.physics.add.group({
+    immovable: true, // Препятствия неподвижны
+    allowGravity: false, // Гравитация не влияет на препятствия
+  });
+
+  modifiersGroup = this.physics.add.group({
+    immovable: true, // Препятствия неподвижны
+    allowGravity: false, // Гравитация не влияет на препятствия
+  });
+
+  coinsGroup = this.physics.add.group({
+    immovable: true, // Монеты неподвижны при столкновении
+    allowGravity: false, // Гравитация не влияет на монеты
+  });
 
   const levelData = this.cache.json.get('level1');
-  levelData.obstacles.forEach(obstacle => createObstacle(this, obstacle));
+  levelData.obstacles.forEach(obstacleData => createObstacle(this, obstacleData)); // Создаём препятствия
   levelData.coins.forEach(coin => createCoin(this, coin));
   levelData.modifiers.forEach(modifier => createModifier(this, modifier)); // Добавляем создание модификаторов
 
@@ -86,15 +104,20 @@ function create() {
 
   // Создаем первого игрока
   createPlayer(this, initialXOffset, config.height / 2);
+
+
+
   // Создаем гнездо
   createNest(this, levelData.nest);
 
   this.physics.add.overlap(playersGroup, coinsGroup, collectCoin, null, this);
   this.physics.add.overlap(playersGroup, modifiersGroup, applyModifier, null, this); // Обрабатываем модификаторы
   
+  
   this.physics.add.collider(playersGroup, obstaclesGroup, (player, obstacle) => {
     handlePlayerCollision(this, player, obstacle);
   });
+
 
   coinText = this.add.text(10, 10, `Coins: ${coinCount}`, {
     fontSize: '20px',
@@ -121,13 +144,18 @@ function create() {
   }).setOrigin(0.5).setInteractive().setVisible(false);
 
   playAgainButton.on('pointerdown', () => {
-    // Очистка группы игроков
+
+    // Очистка групп
     playersGroup.clear(true, true);
+    obstaclesGroup.clear(true, true);
+    coinsGroup.clear(true, true);
+    modifiersGroup.clear(true, true);
   
     // Сброс переменных
     birdsCome = 0;
     coinCount = 0;
     nestWidth = initialNestWidth;
+    SCROLL_SPEED = BASE_SCROLL_SPEED;
     
     updateBirdsComeText();
     coinText.setText(`Coins: ${coinCount}`);
@@ -148,16 +176,6 @@ function create() {
         if (!player || !player.scene) {
           return;
         }
-  
-        // Смена текстуры на bird_u
-        player.setTexture('bird_u');
-  
-        // Устанавливаем таймер для возврата текстуры через 0.1 секунды
-        this.time.delayedCall(100, () => {
-          if (player && player.scene) {
-            player.setTexture('bird'); // Возврат к изначальному состоянию
-          }
-        });
   
         // Прыжок игрока
         player.body.setVelocityY(playerJumpVelocity);
@@ -192,7 +210,6 @@ function createPlayer(scene, x, y) {
 
   // Присваиваем уникальный идентификатор
   player.id = Phaser.Math.RND.uuid();
-
   playersGroup.add(player);
 }
 
@@ -235,6 +252,7 @@ function addPlayers(scene, additionalPlayers) {
 }
 
 function handlePlayerCollision(scene, player, obstacle) {
+  
   if (!player || !obstacle) {
     console.error('Player or obstacle is undefined');
     return;
@@ -255,9 +273,8 @@ function handlePlayerCollision(scene, player, obstacle) {
 
   // Проверяем, остались ли еще игроки в группе
   if (playersGroup.getChildren().length === 0) {
-    console.log("No more players: GAME OVER");
     // Если игроков не осталось, завершаем игру
-    handleGameOver(scene);
+    handleGameOver();
   }
 }
 
@@ -275,77 +292,77 @@ function getModifierSymbol(effect) {
 }
 
 function createModifier(scene, modifierData) {
-  const modifier = scene.add.rectangle(
+  // Создаём спрайт модификатора
+  const modifier = scene.physics.add.sprite(
     modifierData.x,
     modifierData.y,
-    modifierData.width,
-    modifierData.height,
-    Phaser.Display.Color.HexStringToColor(modifierData.color).color
+    'modifier' // Используем загруженный спрайт
   );
 
-  modifier.alpha = 0.5; // Устанавливаем полупрозрачность
+  // Добавляем свойства эффекта и значения к объекту
+  modifier.effect = modifierData.effect;
+  modifier.value = modifierData.value;
 
-  // Добавляем текст поверх модификатора
-  const symbol = getModifierSymbol(modifierData.effect); // Получаем символ для эффекта
-  const text = `${symbol}${modifierData.value}`; // Формируем текст с параметром
-  const textStyle = {
-    fontSize: '16px',
-    color: '#FFFFFF',
+  // Настраиваем физическое тело
+  modifier.body.setImmovable(true); // Модификатор неподвижен
+  modifier.body.setAllowGravity(false); // Гравитация не влияет на модификатор
+
+  // Формируем текст модификатора
+  let effectSymbol = ''; // Символ эффекта
+  switch (modifier.effect) {
+    case 'duplicate':
+      effectSymbol = '+';
+      break;
+    case 'enlarge':
+      effectSymbol = 'x';
+      break;
+    case 'speed':
+      effectSymbol = 's';
+      break;
+    default:
+      effectSymbol = '?'; // Неизвестный модификатор
+  }
+
+  const displayText = `${effectSymbol}${modifier.value}`; // Формат текста: "СимволЗначение" (без пробела)
+
+  // Добавляем текст к модификатору
+  modifier.displayText = scene.add.text(modifier.x, modifier.y, displayText, {
+    fontSize: '16px', // Размер текста
+    fontFamily: 'Verdana', // Шрифт для текста
+    color: '#FFFFFF', // Белый цвет
     align: 'center',
-  };
-  const modifierText = scene.add.text(modifierData.x, modifierData.y, text, textStyle).setOrigin(0.5);
+  });
 
-  // Привязываем текст к модификатору
-  modifier.text = modifierText;
+  // Центрируем текст относительно модификатора
+  modifier.displayText.setOrigin(0.5, 0.5); // Устанавливаем центр текста
+  modifier.displayText.setPosition(modifier.x, modifier.y); // Совмещаем с позицией спрайта
 
-  scene.physics.add.existing(modifier, true);
-  modifier.effect = modifierData.effect; // Добавляем эффект в объект модификатора
-  modifier.value = modifierData.value; // Добавляем значение параметра в объект модификатора
-  modifiersGroup.add(modifier); // Добавляем в группу модификаторов
+  // Добавляем модификатор в группу
+  modifiersGroup.add(modifier);
 }
 
 function applyModifier(player, modifier) {
   switch (modifier.effect) {
-
     case 'duplicate':
-      if (modifier.value && typeof modifier.value === 'number') {
-        addPlayers(this, modifier.value); // Добавляем указанное количество игроков
-      } else {
-        console.warn('Duplicate modifier is missing a valid value.');
-      }
+      addPlayers(this, modifier.value);
       break;
-
-      case 'enlarge':
-        if (modifier.value && typeof modifier.value === 'number') {
-          const scaleFactor = modifier.value; // В данном случае `value = 2`
-          
-          // Увеличиваем размеры игрока пропорционально scaleFactor
-          player.setDisplaySize(playerWidth * scaleFactor, playerHeight * scaleFactor);
-          console.log(`Player with ID ${player.id} enlarged by factor ${scaleFactor}.`);
-        } else {
-          console.warn('Enlarge modifier is missing a valid value.');
-        }
-        break;
-
+    case 'enlarge':
+      player.setDisplaySize(playerWidth * modifier.value, playerHeight * modifier.value);
+      break;
     case 'speed':
-      if (modifier.value && typeof modifier.value === 'number') {
-        SCROLL_SPEED *= modifier.value; // Изменяем текущую скорость
-        console.log(`Scroll speed modified: SCROLL_SPEED is now ${SCROLL_SPEED}`);
-      } else {
-        console.warn('Speed modifier is missing a valid value.');
-      }
+      SCROLL_SPEED *= modifier.value;
       break;
-
     default:
       console.warn('Unknown modifier effect:', modifier.effect);
   }
 
-  // Удаляем текст модификатора, если он существует
-  if (modifier.text) {
-    modifier.text.destroy();
+  // Уничтожаем текст, если он есть
+  if (modifier.displayText) {
+    modifier.displayText.destroy();
   }
 
-  modifier.destroy(); // Удаляем модификатор после применения
+  // Уничтожаем модификатор
+  modifiersGroup.remove(modifier, true, true);
 }
 
 function checkLevelEnd() {
@@ -354,7 +371,7 @@ function checkLevelEnd() {
     gameOverText.setText('Level Complete').setVisible(true);
   } else {
     // Отображаем сообщение об окончании игры
-    gameOverText.setText('Game Over').setVisible(true);
+    handleGameOver();
   }
   
   // Делаем кнопку "Play Again" видимой
@@ -373,6 +390,7 @@ function checkOutOfBounds(player) {
 }
 
 function update() {
+
   if (gameOver || levelComplete) return;
 
   playersGroup.children.each((player) => checkOutOfBounds(player));
@@ -384,6 +402,7 @@ function update() {
   }
 
   if (screenScrolling) {
+
     // Проверяем, достигло ли гнездо середины экрана
     if (nest && nest.x <= config.width * 0.75) {
       stopScreenScrolling();
@@ -446,19 +465,6 @@ function scrollNest() {
 
 function stopScreenScrolling() {
   screenScrolling = false;
-
-  // Останавливаем фоновую прокрутку (фон сам обновляется через scrollBackground)
-  backgroundStripes.forEach((stripe) => {
-    stripe.x = stripe.x; // Оставляем их в текущем состоянии
-  });
-
-  // Останавливаем движение препятствий
-  obstaclesGroup.getChildren().forEach((obstacle) => {
-    // Мы больше не обновляем их позиции
-    obstacle.x = obstacle.x; // Удерживаем текущее положение
-  });
-
-
 }
 
 function movePlayerToNest() {
@@ -501,44 +507,103 @@ function handleLevelComplete(scene, playersGroup, nest) {
 }
 */
 
-function handleGameOver(scene) {
+function handleGameOver() {
   if (gameOver) return;
 
   gameOver = true;
+  screenScrolling = false; // Останавливаем прокрутку экрана
+  SCROLL_SPEED = 0; // Сбрасываем скорость прокрутки
 
-  // Отключаем управление игроком
-  scene.input.off('pointerdown');
+  // Сбрасываем скорость всех препятствий
+  obstaclesGroup.getChildren().forEach(obstacle => {
+    if (obstacle.body) {
+      obstacle.body.setVelocityX(0); // Останавливаем движение
+    }
+  });
 
-  /*
-  // Удаляем игрока
-  if (player) {
-    player.destroy();
-    player = null;
-  }
-  */
-  // Показываем текст Game Over и кнопку Play Again
+  // Сбрасываем скорость всех модификаторов
+  modifiersGroup.getChildren().forEach(modifier => {
+    if (modifier.body) {
+      modifier.body.setVelocityX(0); // Останавливаем движение
+    }
+  });
+
+  // Останавливаем движение всех монет
+  coinsGroup.getChildren().forEach(coin => {
+    if (coin.body) {
+      coin.body.setVelocityX(0); // Останавливаем движение
+    }
+  });
+
   gameOverText.setVisible(true);
   playAgainButton.setVisible(true);
 }
 
 function createScrollingBackground(scene) {
-  const colors = [0x87cefa, 0xadd8e6]; // Два оттенка голубого
-  const stripeWidth = 60;
+  const gradientKey = 'gradient';
 
-  for (let i = 0; i < Math.ceil(config.width / stripeWidth) + 2; i++) {
-    const color = colors[i % 2];
-    const stripe = scene.add.rectangle(i * stripeWidth, config.height / 2, stripeWidth, config.height, color);
-    backgroundStripes.push(stripe);
+  // Проверяем, существует ли текстура
+  if (!scene.textures.exists(gradientKey)) {
+    const gradientHeight = config.height;
+
+    // Создаем текстуру, если она ещё не существует
+    const gradient = scene.textures.createCanvas(gradientKey, config.width, gradientHeight);
+    const ctx = gradient.getContext();
+    const grd = ctx.createLinearGradient(0, 0, 0, gradientHeight);
+    grd.addColorStop(0, '#2A2D3F'); // Верхний цвет
+    grd.addColorStop(1, '#1B1D2A'); // Нижний цвет
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, config.width, gradientHeight);
+    gradient.refresh();
+  }
+
+  // Добавляем изображение на сцену
+  scene.add.image(0, 0, gradientKey).setOrigin(0, 0);
+
+  // Создаем сетку
+  gridGraphics = scene.add.graphics();
+  gridGraphics.lineStyle(2, Phaser.Display.Color.HexStringToColor('#2A2D3F').color, 0.5);
+
+  // Рисуем вертикальные линии
+  for (let x = 0; x <= config.width; x += 60) {
+    gridGraphics.beginPath();
+    gridGraphics.moveTo(x, 0);
+    gridGraphics.lineTo(x, config.height);
+    gridGraphics.closePath();
+    gridGraphics.strokePath();
+  }
+
+  // Рисуем горизонтальные линии
+  for (let y = 0; y <= config.height; y += 40) {
+    gridGraphics.beginPath();
+    gridGraphics.moveTo(0, y);
+    gridGraphics.lineTo(config.width, y);
+    gridGraphics.closePath();
+    gridGraphics.strokePath();
   }
 }
 
 function scrollBackground() {
-  backgroundStripes.forEach((stripe) => {
-    stripe.x -= SCROLL_SPEED;
-    if (stripe.x < -30) {
-      stripe.x += backgroundStripes.length * 60;
-    }
-  });
+
+  if (gameOver || levelComplete) return;
+  // Очищаем предыдущие линии
+  gridGraphics.clear();
+
+  // Устанавливаем стиль для линий
+  gridGraphics.lineStyle(2, Phaser.Display.Color.HexStringToColor('#2A2D3F').color, 0.5);
+
+  // Обновляем смещение только по X для вертикальных линий
+  gridOffsetX = (gridOffsetX - SCROLL_SPEED) % 60;
+
+  // Рисуем вертикальные линии с учетом смещения
+  for (let x = gridOffsetX; x <= config.width; x += 60) {
+    gridGraphics.lineBetween(x, 0, x, config.height);
+  }
+
+  // Рисуем горизонтальные линии без смещения
+  for (let y = 0; y <= config.height; y += 40) {
+    gridGraphics.lineBetween(0, y, config.width, y);
+  }
 }
 
 function createNest(scene, nestData) {
@@ -640,73 +705,104 @@ function handlePlayerNestCollision(obj1, obj2) {
 
 
 function collectCoin(player, coin) {
-  coin.destroy(); // Удаляем монетку
-  coinCount += 1; // Увеличиваем счетчик
-  coinText.setText(`Coins: ${coinCount}`); // Обновляем текст
+  // Удаляем монету из сцены и группы
+  if (coin.body) {
+    coin.body.destroy();
+  }
+  coinsGroup.remove(coin, true, true);
+
+  // Увеличиваем счетчик монет и обновляем текст
+  coinCount += 1;
+  coinText.setText(`Coins: ${coinCount}`);
 }
 
 function createCoin(scene, coinData) {
-  const coin = scene.add.ellipse(
+  // Создаём спрайт монеты
+  const coin = scene.physics.add.sprite(
     coinData.x,
     coinData.y,
-    20, // Ширина эллипса
-    30, // Высота эллипса
-    0xFFD700 // Желтый цвет
+    'coin' // Используем загруженный спрайт
   );
 
-  scene.physics.add.existing(coin, true); // Создаем статическое тело для монеты
-  coinsGroup.add(coin); // Добавляем физическое тело монеты в группу
+  // Настраиваем физическое тело
+  coin.body.setImmovable(true); // Монета неподвижна
+  coin.body.setAllowGravity(false); // Гравитация не влияет на монету
+
+  // Добавляем монету в группу
+  coinsGroup.add(coin);
 }
 
 function createObstacle(scene, obstacleData) {
-  const obstacle = obstaclesGroup.create(obstacleData.x, obstacleData.y, undefined);
-  obstacle.setSize(obstacleData.width, obstacleData.height);
-  obstacle.setDisplaySize(obstacleData.width, obstacleData.height);
-  obstacle.setOrigin(0.5, 0.5);
-  obstacle.setTint(Phaser.Display.Color.HexStringToColor(obstacleData.color).color);
+  // Создаём спрайт для барьера
+  const obstacle = scene.physics.add.sprite(
+    obstacleData.x,
+    obstacleData.y,
+    'barrier' // Используем загруженный ключ изображения
+  );
+
+  // Настраиваем физическое тело
+  obstacle.body.setImmovable(true); // Препятствие не будет двигаться при столкновениях
+  obstacle.body.setAllowGravity(false); // Гравитация не влияет на препятствие
+
+  // Добавляем барьер в группу
+  obstaclesGroup.add(obstacle);
 }
 
 function scrollObstacles() {
-  obstaclesGroup.getChildren().forEach(obstacle => {
-    obstacle.x -= SCROLL_SPEED;
-    obstacle.body.updateFromGameObject();
+  if (gameOver) return; // Останавливаем выполнение, если игра окончена
 
+  obstaclesGroup.getChildren().forEach(obstacle => {
+    if (obstacle.body) {
+      // Перемещаем физическое тело барьера
+      obstacle.body.setVelocityX(-SCROLL_SPEED * 60); // Скорость в пикселях/секунду
+    }
+
+    // Обновляем графику для обводки
+    if (obstacle.graphics) {
+      obstacle.graphics.x = obstacle.x;
+      obstacle.graphics.y = obstacle.y;
+    }
+
+    // Удаляем барьеры, которые вышли за пределы экрана
     if (obstacle.x + obstacle.displayWidth / 2 < 0) {
+      if (obstacle.graphics) {
+        obstacle.graphics.destroy(); // Удаляем графику
+      }
       obstaclesGroup.remove(obstacle, true, true);
     }
   });
 
   coinsGroup.getChildren().forEach(coin => {
-    coin.x -= SCROLL_SPEED;
-
     if (coin.body) {
-      coin.body.updateFromGameObject(); // Синхронизация физического тела
+      // Перемещаем монету влево
+      coin.body.setVelocityX(-SCROLL_SPEED * 60);
     }
-
+  
+    // Удаляем монеты, которые вышли за пределы экрана
     if (coin.x < -20) {
-      coin.destroy();
+      coinsGroup.remove(coin, true, true);
     }
   });
 
     // Скроллинг модификаторов
     modifiersGroup.getChildren().forEach(modifier => {
-      modifier.x -= SCROLL_SPEED;
-    
       if (modifier.body) {
-        modifier.body.updateFromGameObject(); // Синхронизация физического тела
+        // Перемещаем модификатор влево
+        modifier.body.setVelocityX(-SCROLL_SPEED * 60);
       }
-    
-      // Обновляем позицию текста
-      if (modifier.text) {
-        modifier.text.x = modifier.x;
-        modifier.text.y = modifier.y;
-      }
-    
-      if (modifier.x < -modifier.width / 2) {
+  
+   // Обновляем позицию текста модификатора
+   if (modifier.displayText) {
+    modifier.displayText.x = modifier.x;
+    modifier.displayText.y = modifier.y;
+    }
+  
+      // Удаляем модификаторы, которые вышли за пределы экрана
+      if (modifier.x + modifier.displayWidth / 2 < 0) {
         if (modifier.text) {
-          modifier.text.destroy(); // Удаляем текст, если модификатор вышел за экран
+          modifier.text.destroy(); // Удаляем текст
         }
-        modifier.destroy(); // Удаляем модификатор
+        modifiersGroup.remove(modifier, true, true);
       }
     });
     
@@ -727,8 +823,6 @@ function handlePlayerRotation() {
 }
 
 function resetBackground() {
-  if (backgroundStripes && backgroundStripes.length) {
-    backgroundStripes.forEach((stripe) => stripe.destroy());
-  }
-  backgroundStripes = [];
+  gridOffsetX = 0; // Смещение по X для сетки
+  gridOffsetY = 0; // Смещение по Y для сетки
 }

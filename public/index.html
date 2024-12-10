@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400&display=swap" rel="stylesheet">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Flappy Prototype</title>
@@ -8,6 +9,14 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <script>
+    // Ожидание загрузки веб-шрифта
+    const font = new FontFace('Orbitron', 'url(https://fonts.gstatic.com/s/orbitron/v18/yMJRMIlzdpvBhQQL_RJ7UVJhwnvQFfFl7w.woff2)');
+    font.load().then(() => {
+      document.fonts.add(font);
+      console.log('Orbitron font loaded.');
+    });
+  </script>
   <script src="game.js"></script>
 </body>
 </html>
