@@ -23,7 +23,12 @@ const config = {
 };
 
 const game = new Phaser.Game(config);
-let birdsComeText;
+//let birdsComeText;
+
+// Глобальные переменные для логики заполнения гнезда
+const defaultNestCapacity = 9; // Вместимость гнезда по умолчанию
+let nestCapacity = defaultNestCapacity; // Текущая вместимость гнезда
+let nestFillLevel = 0; // Уровень заполнения гнезда
 
 let playerWidth = 60; // Ширина игрока
 let playerHeight = 60; // Высота игрока
@@ -41,9 +46,8 @@ let gridGraphics; // Графический объект для сетки
 let gridOffsetX = 0; // Смещение по X для сетки
 let gridOffsetY = 0; // Смещение по Y для сетки
 let gameOverText, playAgainButton; // UI элементы
+let levelCompleteText; // Глобальная переменная для уровня
 let nest; // Гнездо
-let dangerZone; // Черный блок под гнездом
-let pole; // шест гнезда
 let levelComplete = false; // Завершение уровня
 const BASE_SCROLL_SPEED = 4; // Базовая скорость прокрутки
 let SCROLL_SPEED = BASE_SCROLL_SPEED; // Текущая изменяемая скорость прокрутки
@@ -55,15 +59,18 @@ let coinCount = 0; // Счетчик монет
 let coinText; // Текст для отображения счета
 let coinsGroup; // Группа монет
 
-let initialNestWidth = 100; // Изначальная ширина гнезда
-let nestWidth = initialNestWidth; // Текущая ширина гнезда
-
 function preload() {
-  this.load.image('bird', 'assets/images/bird.png'); // Птица с поднятыми крыльями
-  this.load.image('barrier', 'assets/images/barrier1.png'); // Загружаем изображение барьера
-  this.load.image('modifier', 'assets/images/modifier1.png'); // Загрузка изображения модификатора
-  this.load.image('coin', 'assets/images/coin.png'); // Загружаем изображение монеты
-  this.load.json('level1', 'data/level1.json'); // Загрузка уровня
+  this.load.image('bird', 'assets/images/bird.png'); // Птица
+  this.load.image('barrier', 'assets/images/barrier1.png'); // Препятствие
+  this.load.image('modifier1', 'assets/images/modifier1.png'); // Модификатор 1
+  this.load.image('modifier2', 'assets/images/modifier2.png'); // Модификатор 2
+  this.load.image('coin', 'assets/images/coin.png'); // Монета
+  this.load.image('nest', 'assets/images/nest.png'); // Гнездо
+  this.load.image('nestArrow', 'assets/images/nest_arrow.png'); // Стрелка
+  this.load.image('PlayAgainButton', 'assets/images/PlayAgainButton.png'); // Кнопка Play Again
+  this.load.image('GameOverText', 'assets/images/gameover.png'); // Текст Game Over
+  this.load.image('levelComplete', 'assets/images/levelcomplete.png');
+  this.load.json('level1', 'data/level1.json'); // Уровень
 }
 
 function create() {
@@ -71,6 +78,7 @@ function create() {
   levelComplete = false;
   screenScrolling = true;
   birdsCome = 0; // Сбрасываем счётчик птиц
+  estFillLevel = 0; // Сбрасываем уровень заполнения гнезда
   SCROLL_SPEED = BASE_SCROLL_SPEED; // Сброс текущей скорости при старте
 
   resetBackground();
@@ -105,8 +113,6 @@ function create() {
   // Создаем первого игрока
   createPlayer(this, initialXOffset, config.height / 2);
 
-
-
   // Создаем гнездо
   createNest(this, levelData.nest);
 
@@ -119,31 +125,36 @@ function create() {
   });
 
 
-  coinText = this.add.text(10, 10, `Coins: ${coinCount}`, {
-    fontSize: '20px',
-    color: '#FFD700',
-  });
+  // Создаем информационный блок для монет
+  createCoinInfoBlock(this);
 
+  /*
   birdsComeText = this.add.text(config.width - 10, 10, `Birds Come: ${birdsCome}`, {
     fontSize: '20px',
     color: '#FFFFFF',
     align: 'right',
   }).setOrigin(1, 0); // Размещаем в правом верхнем углу
+  */
+
+  // Надпись "Game Over" как спрайт
+  gameOverText = this.add.image(config.width / 2, config.height / 2 - 50, 'GameOverText')
+  .setOrigin(0.5)
+  .setVisible(false); // Скрываем до момента окончания игры
+
+  // Создаем спрайт, но делаем его невидимым
+  levelCompleteText = this.add.sprite(config.width / 2, config.height / 2 - 100, 'levelComplete')
+    .setOrigin(0.5)
+    .setVisible(false);
   
 
-  gameOverText = this.add.text(config.width / 2, config.height / 2 - 50, 'Game Over', {
-    fontSize: '32px',
-    color: '#ff0000',
-  }).setOrigin(0.5).setVisible(false);
+// Кнопка "Play Again" как спрайт
+playAgainButton = this.add.image(config.width / 2, config.height / 2 + 220, 'PlayAgainButton')
+.setOrigin(0.5)
+.setInteractive()
+.setVisible(false); // Скрываем до момента окончания игры
 
-  playAgainButton = this.add.text(config.width / 2, config.height / 2 + 50, 'Play Again', {
-    fontSize: '24px',
-    color: '#ffffff',
-    backgroundColor: '#000000',
-    padding: { x: 10, y: 5 },
-  }).setOrigin(0.5).setInteractive().setVisible(false);
-
-  playAgainButton.on('pointerdown', () => {
+// Добавляем обработчик события нажатия на кнопку
+playAgainButton.on('pointerdown', () => {
 
     // Очистка групп
     playersGroup.clear(true, true);
@@ -154,20 +165,27 @@ function create() {
     // Сброс переменных
     birdsCome = 0;
     coinCount = 0;
-    nestWidth = initialNestWidth;
     SCROLL_SPEED = BASE_SCROLL_SPEED;
+    nestCapacity = defaultNestCapacity; // Текущая вместимость гнезда
+    nestFillLevel = 0; 
     
-    updateBirdsComeText();
+    //updateBirdsComeText();
     coinText.setText(`Coins: ${coinCount}`);
 
     if (nest) {
       nest.destroy();
       nest = null;
     }
+
+    // Скрытие кнопки и текста
+    gameOverText.setVisible(false);
+    levelCompleteText.setVisible(false);
+    playAgainButton.setVisible(false);
   
     // Перезапуск сцены
     this.scene.restart();
   });
+
 
   this.input.on('pointerdown', () => {
     if (!gameOver) {
@@ -196,12 +214,50 @@ function create() {
   });
 }
 
-function updateBirdsComeText() {
-  if (birdsComeText) {
-    birdsComeText.setText(`Birds Come: ${birdsCome}`);
-  }
+function createCoinInfoBlock(scene) {
+  // Создаем спрайт монеты
+  const coinIcon = scene.add.sprite(0, 0, 'coin');
+  coinIcon.setDisplaySize(24, 24); // Размер монетки
+
+  // Текст количества монет
+  const coinTextStyle = {
+    fontSize: '16px',
+    fontFamily: 'Verdana',
+    color: '#FFFFFF',
+  };
+  coinText = scene.add.text(0, 0, `${coinCount}`, coinTextStyle).setOrigin(0.5); // Центрируем текст
+
+  // Рассчитываем ширину прямоугольника на основе длины текста и монетки
+  const padding = 10; // Внутренний отступ
+  const iconPadding = 5; // Отступ между монеткой и текстом
+  const boxWidth = padding * 2 + coinIcon.displayWidth + iconPadding + coinText.width*2;
+  const boxHeight = 40;
+
+  // Прямоугольник фона для текста количества монет
+  const coinBox = scene.add.graphics();
+  coinBox.fillStyle(0x000000, 0.7); // Черный цвет с прозрачностью 70%
+  coinBox.fillRoundedRect(10, 10, boxWidth, boxHeight, 10); // Прямоугольник с закругленными углами
+
+  // Центр прямоугольника
+  const boxCenterX = 10 + boxWidth / 2;
+  const boxCenterY = 10 + boxHeight / 2;
+
+  // Располагаем значок монеты и текст ближе к центру
+  coinIcon.setPosition(boxCenterX - (coinText.width / 2 + iconPadding / 2), boxCenterY);
+  coinText.setPosition(boxCenterX + (coinIcon.displayWidth / 2 + iconPadding / 2), boxCenterY);
+
+  // Устанавливаем слои, чтобы монетка и текст отображались поверх фона
+  coinIcon.setDepth(1);
+  coinText.setDepth(1);
 }
 
+/*
+function updateBirdsComeText() {
+  if (birdsComeText) {
+    birdsComeText.setText(`Birds Come: ${birdsCome} / ${nestCapacity}`);
+  }
+}
+*/
 function createPlayer(scene, x, y) {
   const player = scene.physics.add.sprite(x, y, 'bird'); // Устанавливаем изначальный спрайт
   player.setDisplaySize(playerWidth, playerHeight); // Размеры 30x30
@@ -292,11 +348,25 @@ function getModifierSymbol(effect) {
 }
 
 function createModifier(scene, modifierData) {
+  // Определяем имя текстуры спрайта в зависимости от эффекта
+  let spriteKey;
+  switch (modifierData.effect) {
+    case 'duplicate':
+    case 'enlarge':
+      spriteKey = 'modifier1'; // Используем modifier1.png для duplicate и enlarge
+      break;
+    case 'speed':
+      spriteKey = 'modifier2'; // Используем modifier2.png для speed
+      break;
+    default:
+      spriteKey = 'modifier1'; // Используем default sprite на случай ошибки
+  }
+
   // Создаём спрайт модификатора
   const modifier = scene.physics.add.sprite(
     modifierData.x,
     modifierData.y,
-    'modifier' // Используем загруженный спрайт
+    spriteKey // Используем соответствующий спрайт
   );
 
   // Добавляем свойства эффекта и значения к объекту
@@ -325,8 +395,8 @@ function createModifier(scene, modifierData) {
 
   const displayText = `${effectSymbol}${modifier.value}`; // Формат текста: "СимволЗначение" (без пробела)
 
-  // Добавляем текст к модификатору
-  modifier.displayText = scene.add.text(modifier.x, modifier.y, displayText, {
+  // Создаём текст
+  modifier.displayText = scene.add.text(0, 0, displayText, {
     fontSize: '16px', // Размер текста
     fontFamily: 'Verdana', // Шрифт для текста
     color: '#FFFFFF', // Белый цвет
@@ -339,6 +409,9 @@ function createModifier(scene, modifierData) {
 
   // Добавляем модификатор в группу
   modifiersGroup.add(modifier);
+
+  // Привязываем текст к спрайту
+  modifier.displayText.setDepth(1); // Устанавливаем текст поверх спрайта
 }
 
 function applyModifier(player, modifier) {
@@ -368,7 +441,7 @@ function applyModifier(player, modifier) {
 function checkLevelEnd() {
   if (birdsCome > 0) {
     // Отображаем сообщение об успешном завершении уровня
-    gameOverText.setText('Level Complete').setVisible(true);
+    levelCompleteText.setVisible(true);
   } else {
     // Отображаем сообщение об окончании игры
     handleGameOver();
@@ -402,11 +475,15 @@ function update() {
   }
 
   if (screenScrolling) {
-
     // Проверяем, достигло ли гнездо середины экрана
     if (nest && nest.x <= config.width * 0.75) {
       stopScreenScrolling();
-
+  
+      // Останавливаем прокрутку гнезда
+      if (nest.body) {
+        nest.body.setVelocityX(0);
+      }
+  
       // Запускаем движение всех игроков вправо
       playersGroup.children.each((player) => {
         if (player.body) {
@@ -414,52 +491,43 @@ function update() {
         }
       });
     }
-
+  
     // Скроллинг экрана
     scrollBackground();
     scrollObstacles();
-    scrollNest();
+  
+    // Скроллинг гнезда
+    if (nest && nest.x > config.width * 0.75) {
+      scrollNest();
+    }
   } else {
-    // Проверяем движение игрока к гнезду
     movePlayerToNest();
   }
+
+  // Обновление отображения заполненности гнезда
+  updateNestFillLevel();
 
   // Наклон игрока
   handlePlayerRotation();
 }
 
-
 function scrollNest() {
-  if (nest) {
-    // Перемещаем гнездо
-    nest.x -= SCROLL_SPEED;
+  if (!nest) return;
 
+  // Проверяем, достигло ли гнездо нужной позиции
+  if (nest.x <= config.width * 0.75) {
     if (nest.body) {
-      nest.body.updateFromGameObject(); // Синхронизируем физическое тело с визуальным объектом
+      nest.body.setVelocityX(0); // Останавливаем движение физического тела
     }
+    return; // Останавливаем дальнейшее перемещение гнезда
+  }
 
-    
-    // Если dangerZone существует, перемещаем его вместе с nest
-    if (dangerZone) {
-      dangerZone.x = nest.x; // Синхронизация по X
-      if (dangerZone.body) {
-        dangerZone.body.updateFromGameObject(); // Синхронизация физического тела dangerZone
-      }
-    }
-
-    // Если шест (pole) существует, перемещаем его вместе с nest
-    if (pole) {
-      pole.x = nest.x; // Синхронизация по X
-      if (pole.body) {
-        pole.body.updateFromGameObject(); // Синхронизация физического тела шеста
-      }
-    }
-
-    // Удаляем гнездо, если оно выходит за экран (опционально)
-    /*if (nest.x + nest.width / 2 < 0) {
-      console.log("Nest went off-screen");
-    }
-    */
+  // Если у гнезда есть физическое тело, используем только физику
+  if (nest.body) {
+    nest.body.setVelocityX(-SCROLL_SPEED * 60); // Двигаем гнездо только через физическое тело
+  } else {
+    // Если физическое тело отсутствует, перемещаем вручную
+    nest.x -= SCROLL_SPEED;
   }
 }
 
@@ -474,39 +542,6 @@ function movePlayerToNest() {
   }
 }
 
-/*
-function handleLevelComplete(scene, playersGroup, nest) {
-  if (!playersGroup || !nest) {
-    console.error('PlayersGroup or nest is undefined');
-    return;
-  }
-
-  levelComplete = true;
-
-  // Останавливаем движение всех игроков и отключаем гравитацию
-  playersGroup.getChildren().forEach((player) => {
-    if (player.body) {
-      player.body.setVelocity(0, 0); // Останавливаем движение
-      player.body.setGravityY(0); // Отключаем гравитацию
-      player.body.moves = false; // Отключаем любые перемещения
-    }
-  });
-
-  // Выводим сообщение об успешном завершении уровня
-  scene.add.text(config.width / 2, config.height / 2 - 50, 'Level Complete!', {
-    fontSize: '32px',
-    color: '#00FF00',
-  }).setOrigin(0.5);
-
-  // Проверяем существование playAgainButton
-  if (playAgainButton) {
-    playAgainButton.setVisible(true);
-  } else {
-    console.warn('playAgainButton is undefined.');
-  }
-}
-*/
-
 function handleGameOver() {
   if (gameOver) return;
 
@@ -514,27 +549,17 @@ function handleGameOver() {
   screenScrolling = false; // Останавливаем прокрутку экрана
   SCROLL_SPEED = 0; // Сбрасываем скорость прокрутки
 
-  // Сбрасываем скорость всех препятствий
-  obstaclesGroup.getChildren().forEach(obstacle => {
-    if (obstacle.body) {
-      obstacle.body.setVelocityX(0); // Останавливаем движение
-    }
-  });
+  // Сбрасываем движение всех объектов
+  obstaclesGroup.getChildren().forEach(obstacle => obstacle.body?.setVelocityX(0));
+  modifiersGroup.getChildren().forEach(modifier => modifier.body?.setVelocityX(0));
+  coinsGroup.getChildren().forEach(coin => coin.body?.setVelocityX(0));
 
-  // Сбрасываем скорость всех модификаторов
-  modifiersGroup.getChildren().forEach(modifier => {
-    if (modifier.body) {
-      modifier.body.setVelocityX(0); // Останавливаем движение
-    }
-  });
+  // Останавливаем движение гнезда
+  if (nest?.body) {
+    nest.body.setVelocityX(0); // Устанавливаем скорость гнезда в 0
+  }
 
-  // Останавливаем движение всех монет
-  coinsGroup.getChildren().forEach(coin => {
-    if (coin.body) {
-      coin.body.setVelocityX(0); // Останавливаем движение
-    }
-  });
-
+  // Отображаем "Game Over" и кнопку "Play Again"
   gameOverText.setVisible(true);
   playAgainButton.setVisible(true);
 }
@@ -607,77 +632,59 @@ function scrollBackground() {
 }
 
 function createNest(scene, nestData) {
-  // Создаем основное гнездо (зеленый блок)
-  nest = scene.add.rectangle(
-    nestData.x,
-    nestData.y,
-    nestWidth, // Используем динамическую ширину
-    nestData.height,
-    Phaser.Display.Color.HexStringToColor(nestData.color).color
-  );
+  // Создаём спрайт для гнезда
+  nest = scene.physics.add.sprite(nestData.x, nestData.y, 'nest');
 
-  scene.physics.add.existing(nest, true); // Создаем статическое тело для гнезда
+  // Настраиваем физическое тело гнезда
+  nest.body.setImmovable(true); // Гнездо неподвижно
+  nest.body.setAllowGravity(false); // Гравитация не влияет на гнездо
 
-  // Проверяем, создано ли физическое тело гнезда
-  if (!nest.body) {
-    console.error('Physics body for nest was not created.');
-    return;
-  }
-  
+  // Создаём графику для индикатора заполнения гнезда
+  nest.fillGraphics = scene.add.graphics();
+  nest.fillGraphics.setDepth(1); // Отображаем поверх гнезда
 
-  // Создаем черный блок под гнездом
-  dangerZone = scene.add.rectangle(
-    nestData.x,
-    nestData.y + nestData.height, // Под гнездом
-    nestWidth, // Используем динамическую ширину
-    nestData.height,
-    0x000000 // Черный цвет
-  );
+  // Добавляем стрелку над гнездом
+  const arrowOffsetY = -100; // Смещение стрелки выше гнезда
+  const arrow = scene.add.sprite(nestData.x, nestData.y + arrowOffsetY, 'nestArrow');
 
-  scene.physics.add.existing(dangerZone, true); // Создаем статическое тело для dangerZone
-
-
-  // Создаем вертикальный прямоугольник для шеста
-  pole = scene.add.rectangle(
-    nestData.x, // Центр шеста совпадает с центром гнезда
-    nestData.y * 1.5 + nestData.height*2 , // Под гнездом
-    nestData.height, // Шест тоньше гнезда
-    config.height - (nestData.y + nestData.height), // Высота от dangerZone до низа экрана
-    0x000000 // Черный цвет
-  );
-
-  scene.physics.add.existing(pole, true); // Создаем статическое тело для шеста
-
-  // Проверяем, создано ли физическое тело dangerZone и шеста
-  if (!dangerZone.body || !pole.body) {
-    console.error('Physics body for dangerZone or pole was not created.');
-    return;
-  }
-
-  
-  // Проверяем столкновение всех игроков с dangerZone
-  scene.physics.add.collider(playersGroup, dangerZone, (player, dangerZone) => {
-   /*
-    if (!gameOver) {
-      handleGameOver(scene);
-    }*/
+  // Обновляем позицию стрелки, чтобы она всегда находилась над гнездом
+  scene.events.on('update', () => {
+    arrow.setPosition(nest.x, nest.y + arrowOffsetY);
   });
-
-  // Проверяем столкновение всех игроков с шестом
-  scene.physics.add.collider(playersGroup, pole, (player, pole) => {
-    /*if (!gameOver) {
-      handleGameOver(scene);
-    }*/
-  });
-  
 
   // Проверяем столкновение любого игрока с гнездом
   scene.physics.add.collider(playersGroup, nest, handlePlayerNestCollision, null, scene);
+}
 
+// Функция для обновления отображения уровня заполненности гнезда
+function updateNestFillLevel() {
+  if (!nest || !nest.fillGraphics) return;
+
+  const startX = -26; // Начальная X-координата (относительно левого края гнезда)
+  const startY = -24; // Начальная Y-координата (относительно верхнего края гнезда)
+  const circleDiameter = 14; // Диаметр кружка
+  const circleRadius = circleDiameter / 2; // Радиус кружка
+  const verticalSpacing = 16; // Расстояние между кружками по вертикали
+  const horizontalSpacing = 20; // Расстояние между столбцами кружков
+  const maxPerColumn = 3; // Максимальное количество кружков в одном столбце
+
+  // Очищаем предыдущую графику
+  nest.fillGraphics.clear();
+  nest.fillGraphics.fillStyle(0x00F0FF, 1); // Устанавливаем цвет кружков
+
+  // Рисуем кружки для уровня заполнения
+  for (let i = 0; i < nestFillLevel; i++) {
+    const column = Math.floor(i / maxPerColumn); // Определяем текущий столбец
+    const row = i % maxPerColumn; // Определяем текущую строку в столбце
+
+    const x = nest.x + startX + column * horizontalSpacing + circleRadius; // Координата X
+    const y = nest.y + startY + row * verticalSpacing + circleRadius; // Координата Y
+
+    nest.fillGraphics.fillCircle(x, y, circleRadius); // Рисуем кружок
+  }
 }
 
 function handlePlayerNestCollision(obj1, obj2) {
-  // Проверяем, кто из объектов — игрок, а кто — гнездо
   const player = obj1.type === 'Rectangle' && playersGroup.contains(obj1) ? obj1 : obj2;
   const nest = obj1 === player ? obj2 : obj1;
 
@@ -686,34 +693,39 @@ function handlePlayerNestCollision(obj1, obj2) {
     return;
   }
 
-  // Проверяем, содержится ли игрок в группе
   const playerInGroup = playersGroup.getChildren().includes(player);
-
   if (!playerInGroup) {
     console.warn('Player not found in group. Skipping removal.');
     return;
   }
 
-  // Увеличиваем счетчик
-  birdsCome++;
-  updateBirdsComeText();
+  // Проверяем вместимость гнезда
+  if (nestFillLevel < nestCapacity) {
+    birdsCome++;
+    nestFillLevel++; // Увеличиваем уровень заполнения гнезда
+    //updateBirdsComeText();
+    updateNestFillLevel(); // Обновляем визуализацию заполненности
+  } else {
+    console.log('Nest is full. No more birds can be added.');
+  }
 
   // Убираем игрока из группы
-  playersGroup.remove(player, true); // Удаляем объект из группы и сцены
-  player.destroy(); // Полностью уничтожаем объект
+  playersGroup.remove(player, true);
+  player.destroy();
 }
 
 
 function collectCoin(player, coin) {
-  // Удаляем монету из сцены и группы
   if (coin.body) {
     coin.body.destroy();
   }
   coinsGroup.remove(coin, true, true);
 
-  // Увеличиваем счетчик монет и обновляем текст
+  // Увеличиваем счетчик монет
   coinCount += 1;
-  coinText.setText(`Coins: ${coinCount}`);
+
+  // Обновляем текст
+  coinText.setText(`${coinCount}`);
 }
 
 function createCoin(scene, coinData) {
