@@ -25,6 +25,7 @@ const config = {
 const game = new Phaser.Game(config);
 //let birdsComeText;
 
+
 // Глобальные переменные для логики заполнения гнезда
 const defaultNestCapacity = 9; // Вместимость гнезда по умолчанию
 let nestCapacity = defaultNestCapacity; // Текущая вместимость гнезда
@@ -41,6 +42,7 @@ let screenScrolling = true; // Управление скроллингом эк�
 let playersGroup;   // группа игроков
 let obstaclesGroup; // Группа препятствий
 let modifiersGroup; // Группа модификаторов
+let trailsGroup; // Группа для шлейфов
 
 let gridGraphics; // Графический объект для сетки
 let gridOffsetX = 0; // Смещение по X для сетки
@@ -60,6 +62,7 @@ let coinText; // Текст для отображения счета
 let coinsGroup; // Группа монет
 
 function preload() {
+  this.load.image('trail', 'assets/images/bird_track.png'); // Загрузка изображения шлейфа
   this.load.image('bird', 'assets/images/bird.png'); // Птица
   this.load.image('barrier', 'assets/images/barrier1.png'); // Препятствие
   this.load.image('modifier1', 'assets/images/modifier1.png'); // Модификатор 1
@@ -74,12 +77,15 @@ function preload() {
 }
 
 function create() {
+
   gameOver = false;
   levelComplete = false;
   screenScrolling = true;
   birdsCome = 0; // Сбрасываем счётчик птиц
   estFillLevel = 0; // Сбрасываем уровень заполнения гнезда
   SCROLL_SPEED = BASE_SCROLL_SPEED; // Сброс текущей скорости при старте
+
+  trailsGroup = this.add.group(); // Группа для управления шлейфами
 
   resetBackground();
   createScrollingBackground(this);
@@ -186,6 +192,8 @@ playAgainButton.on('pointerdown', () => {
     this.scene.restart();
   });
 
+  // Создаем группу для графических объектов шлейфа
+  const trailGroup = this.add.group();
 
   this.input.on('pointerdown', () => {
     if (!gameOver) {
@@ -193,10 +201,11 @@ playAgainButton.on('pointerdown', () => {
         // Проверяем, существует ли объект
         if (!player || !player.scene) {
           return;
-        }
-  
+        }  
         // Прыжок игрока
         player.body.setVelocityY(playerJumpVelocity);
+        // Создаем шлейф позади птицы с учетом ее текущих размеров
+        createTrail(this, player.x , player.y , player);
       });
     }
   });
@@ -211,6 +220,33 @@ playAgainButton.on('pointerdown', () => {
     playersGroup.remove(player, true);
     player.destroy();
 
+  });
+}
+
+function createTrail(scene, x, y, bird) {
+
+  // Масштабируем шлейф в соответствии с размерами птицы
+  const birdScaleX = bird.displayWidth*2 / bird.width; // Определяем текущий масштаб птицы по ширине
+  
+  const trail = scene.add.sprite(x- 28*birdScaleX, y+ 18*birdScaleX, 'trail');
+
+  trail.setScale(birdScaleX, birdScaleX); // Устанавливаем масштаб шлейфа
+
+  trail.setAlpha(1); // Устанавливаем полную непрозрачность
+  trail.setOrigin(0.5); // Центруем спрайт
+
+  // Добавляем шлейф в группу
+  trailsGroup.add(trail);
+
+  // Анимация исчезновения
+  scene.tweens.add({
+    targets: trail,
+    alpha: 0, // Исчезновение до полной прозрачности
+    duration: 520, // Длительность анимации
+    onComplete: () => {
+      trail.destroy(); // Удаляем спрайт после завершения анимации
+      trailsGroup.remove(trail); // Удаляем из группы
+    },
   });
 }
 
@@ -316,6 +352,9 @@ function handlePlayerCollision(scene, player, obstacle) {
 
   // Проверяем, завершена ли игра для всех игроков
   if (gameOver) return;
+
+  // Создаем эффект разлета красных частиц
+  createStarburst(scene, player.x, player.y, "0xFFB6DA");
 
   // Устанавливаем вертикальное ускорение для падения только для столкнувшегося игрока
   player.body.setVelocityY(300); // Падение вниз с постоянной скоростью
@@ -468,6 +507,9 @@ function update() {
 
   playersGroup.children.each((player) => checkOutOfBounds(player));
 
+
+
+
   // Проверяем, остались ли птицы в группе
   if (playersGroup.getChildren().length === 0) {
     checkLevelEnd();
@@ -475,6 +517,16 @@ function update() {
   }
 
   if (screenScrolling) {
+
+        // Обновляем положение шлейфов
+        trailsGroup.children.each((trail) => {
+          trail.x -= SCROLL_SPEED/2; // Перемещаем шлейф влево
+          if (trail.x + trail.width / 2 < 0) {
+            // Удаляем шлейф, если он вышел за пределы экрана
+            trailsGroup.remove(trail, true, true);
+          }
+        });
+
     // Проверяем, достигло ли гнездо середины экрана
     if (nest && nest.x <= config.width * 0.75) {
       stopScreenScrolling();
@@ -643,6 +695,22 @@ function createNest(scene, nestData) {
   nest.fillGraphics = scene.add.graphics();
   nest.fillGraphics.setDepth(1); // Отображаем поверх гнезда
 
+    // Уменьшаем область столкновения
+    const originalWidth = nest.displayWidth; // Исходная ширина
+    const originalHeight = nest.displayHeight; // Исходная высота
+    const reducedWidth = originalWidth * 0.8; // Уменьшить ширину на 20%
+    const reducedHeight = originalHeight * 0.8; // Уменьшить высоту на 20%
+  
+    nest.body.setSize(reducedWidth, reducedHeight); // Устанавливаем новый размер
+    nest.body.setOffset(
+      (originalWidth - reducedWidth) / 2, // Смещение по X
+      (originalHeight - reducedHeight) / 2 // Смещение по Y
+    );
+  
+    // Создаём графику для индикатора заполнения гнезда
+    nest.fillGraphics = scene.add.graphics();
+    nest.fillGraphics.setDepth(1); // Отображаем поверх гнезда
+
   // Добавляем стрелку над гнездом
   const arrowOffsetY = -100; // Смещение стрелки выше гнезда
   const arrow = scene.add.sprite(nestData.x, nestData.y + arrowOffsetY, 'nestArrow');
@@ -684,7 +752,69 @@ function updateNestFillLevel() {
   }
 }
 
+function createFlash(scene, x, y, color = 0x00F0FF) {
+
+  // Создаем графический объект для вспышки
+  const flash = scene.add.graphics();
+  flash.setPosition(x, y); // Устанавливаем позицию
+  flash.setDepth(10); // Устанавливаем высокий слой, чтобы отображалось поверх других объектов
+  flash.fillStyle(color, 1); // Устанавливаем цвет вспышки
+  flash.fillCircle(0, 0, 10); // Создаем круг с начальным радиусом 10
+
+  // Анимация увеличения и исчезновения вспышки
+  scene.tweens.add({
+    targets: flash,
+    scaleX: 3, // Увеличиваем радиус по X
+    scaleY: 3, // Увеличиваем радиус по Y
+    alpha: 0, // Постепенное исчезновение
+    duration: 300, // Длительность анимации в миллисекундах
+    ease: 'Cubic.easeOut', // Плавная анимация
+    onComplete: () => {
+      flash.destroy(); // Удаляем объект после завершения анимации
+    },
+  });
+}
+
+function createStarburst(scene, x, y, color = 0x00F0FF, starCount = 15) {
+  const stars = []; // Хранение звездочек
+
+  for (let i = 0; i < starCount; i++) {
+    // Создаем графический объект для звездочки
+    const star = scene.add.graphics();
+    star.setPosition(x, y); // Начальная позиция звездочки
+    star.setDepth(10); // Слой выше остальных
+    star.fillStyle(color, 1); // Устанавливаем цвет
+    star.fillCircle(0, 0, 10); // Маленькая звездочка
+
+    stars.push(star);
+
+    // Определяем случайный угол и скорость
+    const angle = Phaser.Math.FloatBetween(0, 2 * Math.PI);
+    const speed = Phaser.Math.Between(50, 100); // Скорость разлета
+
+    // Вычисляем конечную позицию
+    const targetX = x + Math.cos(angle) * speed;
+    const targetY = y + Math.sin(angle) * speed;
+
+    // Анимация полета звездочки
+    scene.tweens.add({
+      targets: star,
+      x: targetX,
+      y: targetY,
+      alpha: 0, // Постепенное исчезновение
+      scaleX: 0.5, // Уменьшение размера
+      scaleY: 0.5, // Уменьшение размера
+      duration: 500, // Длительность анимации
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        star.destroy(); // Удаляем звездочку после завершения анимации
+      },
+    });
+  }
+}
+
 function handlePlayerNestCollision(obj1, obj2) {
+
   const player = obj1.type === 'Rectangle' && playersGroup.contains(obj1) ? obj1 : obj2;
   const nest = obj1 === player ? obj2 : obj1;
 
@@ -699,11 +829,13 @@ function handlePlayerNestCollision(obj1, obj2) {
     return;
   }
 
+  // Создаем вспышку
+  createFlash(player.scene, player.x, player.y);
+
   // Проверяем вместимость гнезда
   if (nestFillLevel < nestCapacity) {
     birdsCome++;
     nestFillLevel++; // Увеличиваем уровень заполнения гнезда
-    //updateBirdsComeText();
     updateNestFillLevel(); // Обновляем визуализацию заполненности
   } else {
     console.log('Nest is full. No more birds can be added.');

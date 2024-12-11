@@ -16,8 +16,7 @@
     ],
     "modifiers": [
       { "x": 500, "y": 250, "effect": "duplicate", "value": 3 },
-      { "x": 800, "y": 200,  "effect": "enlarge", "value": 2 },
-      { "x": 1300, "y": 200,  "effect": "speed", "value": 0.5 }
+      { "x": 800, "y": 200,  "effect": "enlarge", "value": 2 }
     ],
     "nest": {
       "x": 1400,
