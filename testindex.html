@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha3/0.8.0/sha3.min.js"></script>
+    <script>
+        if (typeof sha3 === 'undefined') {
+          console.error('sha3: sha3 not loaded');
+        } else {
+          console.log('sha3 доступен:', sha3.keccak_256("test"));
+        }
+      </script>
+</head>
+<body>
+  <h1>Test js-sha3</h1>
+</body>
+</html>

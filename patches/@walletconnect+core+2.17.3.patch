@@ -1,0 +1,9 @@
+--- a/node_modules/@walletconnect/core/dist/index.es.js
++++ b/node_modules/@walletconnect/core/dist/index.es.js
+@@ -15,7 +15,7 @@
+ import { getBigIntRpcId as je, isJsonRpcRequest as qe, isJsonRpcResponse as Ge, formatJsonRpcResult as He, formatJson...
+ import vs from "@walletconnect/jsonrpc-ws-connection";
+-import _s from "lodash.isequal";
++import * as _s from "lodash.isequal";
+ import { getDocument as Es } from "@walletconnect/window-getters";
+ const ye = "wc", De = 2, J = "core", A = `${ye}@2:${J}:`, Xe = { name: J, logger: "error" }, We = { database: ":memor...
